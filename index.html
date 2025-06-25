@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YouTube Timestamp Looper</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        
+        .main-card {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border: none;
+            border-radius: 20px;
+            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.1);
+            max-width: 900px;
+            margin: 0 auto;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            border: none;
+            border-radius: 50px;
+            padding: 12px 30px;
+            font-weight: 600;
+        }
+        
+        .form-control {
+            border-radius: 15px;
+            border: 2px solid #e9ecef;
+            padding: 15px 20px;
+        }
+        
+        .video-wrapper {
+            position: relative;
+            width: 100%;
+            height: 0;
+            padding-bottom: 56.25%;
+            border-radius: 15px;
+            overflow: hidden;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+        }
+        
+        .video-wrapper iframe {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
+        
+        .controls-panel {
+            background: rgba(255, 255, 255, 0.9);
+            border-radius: 15px;
+            padding: 20px;
+            margin-top: 20px;
+        }
+        
+        .loop-active {
+            background: linear-gradient(45deg, #28a745, #20c997);
+            color: white;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: 600;
+        }
+        
+        .error-alert {
+            background: linear-gradient(45deg, #dc3545, #e74c3c);
+            color: white;
+            padding: 15px;
+            border-radius: 15px;
+            margin-top: 20px;
+        }
+        
+        .title {
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            font-weight: 700;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="container py-5">
+        <div class="main-card p-4">
+            <h1 class="title display-4 mb-4">🎬 YouTube Timestamp Looper</h1>
+            
+            <div class="mb-4">
+                <label class="form-label fw-bold">YouTube URL:</label>
+                <div class="input-group">
+                    <input type="text" class="form-control" id="videoUrl" 
+                           placeholder="https://www.youtube.com/watch?v=...">
+                    <button class="btn btn-primary" id="loadBtn">Load Video</button>
+                </div>
+            </div>
+            
+            <div class="row mb-4">
+                <div class="col-md-6">
+                    <label class="form-label fw-bold">Start Time:</label>
+                    <input type="text" class="form-control" id="startTime" 
+                           placeholder="1:30 or 90">
+                    <small class="text-muted">Format: MM:SS or seconds</small>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label fw-bold">End Time:</label>
+                    <input type="text" class="form-control" id="endTime" 
+                           placeholder="2:15 or 135">
+                    <small class="text-muted">Leave empty for video end</small>
+                </div>
+            </div>
+            
+            <div id="errorMsg"></div>
+            
+            <div id="videoSection" style="display: none;">
+                <div class="video-wrapper">
+                    <div id="player"></div>
+                </div>
+                
+                <div class="controls-panel">
+                    <div class="d-flex justify-content-between align-items-center flex-wrap">
+                        <div class="mb-2 mb-md-0">
+                            <button class="btn btn-success me-2" id="loopBtn">▶️ Start Loop</button>
+                            <button class="btn btn-secondary me-2" id="resetBtn">🔄 Reset</button>
+                            <button class="btn btn-info" id="previewBtn">👁️ Preview</button>
+                        </div>
+                        <div>
+                            <span id="loopStatus" class="loop-active" style="display: none;">🔄 LOOPING</span>
+                            <div class="mt-1">
+                                <small class="text-muted" id="loopInfo">Enter timestamps to loop specific sections</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
+    <script>
+        let player;
+        let isLooping = false;
+        let loopTimer;
+        let startSeconds = 0;
+        let endSeconds = null;
+        let playerReady = false;
+        let videoLoaded = false;
+
+        // YouTube API
+        function onYouTubeIframeAPIReady() {
+            console.log('YouTube API ready');
+        }
+
+        // Load YouTube API
+        const tag = document.createElement('script');
+        tag.src = 'https://www.youtube.com/iframe_api';
+        document.head.appendChild(tag);
+
+        // Elements
+        const elements = {
+            videoUrl: document.getElementById('videoUrl'),
+            startTime: document.getElementById('startTime'),
+            endTime: document.getElementById('endTime'),
+            loadBtn: document.getElementById('loadBtn'),
+            videoSection: document.getElementById('videoSection'),
+            loopBtn: document.getElementById('loopBtn'),
+            resetBtn: document.getElementById('resetBtn'),
+            previewBtn: document.getElementById('previewBtn'),
+            loopStatus: document.getElementById('loopStatus'),
+            loopInfo: document.getElementById('loopInfo'),
+            errorMsg: document.getElementById('errorMsg')
+        };
+
+        // Event listeners
+        elements.loadBtn.addEventListener('click', loadVideo);
+        elements.loopBtn.addEventListener('click', toggleLoop);
+        elements.resetBtn.addEventListener('click', resetVideo);
+        elements.previewBtn.addEventListener('click', previewLoop);
+        elements.startTime.addEventListener('input', updateTimestamps);
+        elements.endTime.addEventListener('input', updateTimestamps);
+        elements.videoUrl.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') loadVideo();
+        });
+
+        function extractVideoId(url) {
+            const match = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([^&\n?#]+)/);
+            return match ? match[1] : null;
+        }
+
+        function parseTime(timeStr) {
+            if (!timeStr || timeStr.trim() === '') return null;
+            timeStr = timeStr.trim();
+            
+            // Handle pure seconds
+            if (/^\d+\.?\d*$/.test(timeStr)) {
+                return parseFloat(timeStr);
+            }
+            
+            // Handle MM:SS or HH:MM:SS format
+            const parts = timeStr.split(':').map(part => parseInt(part, 10));
+            
+            if (parts.length === 2 && !parts.some(isNaN)) {
+                return parts[0] * 60 + parts[1];
+            }
+            
+            if (parts.length === 3 && !parts.some(isNaN)) {
+                return parts[0] * 3600 + parts[1] * 60 + parts[2];
+            }
+            
+            return null;
+        }
+
+        function formatTime(seconds) {
+            const mins = Math.floor(seconds / 60);
+            const secs = Math.floor(seconds % 60);
+            return `${mins}:${secs.toString().padStart(2, '0')}`;
+        }
+
+        function showError(message) {
+            elements.errorMsg.innerHTML = `<div class="error-alert">${message}</div>`;
+            setTimeout(() => elements.errorMsg.innerHTML = '', 5000);
+        }
+
+        function updateTimestamps() {
+            startSeconds = parseTime(elements.startTime.value) || 0;
+            endSeconds = parseTime(elements.endTime.value);
+            
+            // Validate timestamps
+            if (endSeconds !== null && endSeconds <= startSeconds) {
+                showError('End time must be greater than start time');
+                return;
+            }
+            
+            updateLoopInfo();
+        }
+
+        function updateLoopInfo() {
+            if (startSeconds !== null && endSeconds !== null) {
+                const duration = endSeconds - startSeconds;
+                elements.loopInfo.textContent = `Loop: ${formatTime(startSeconds)} - ${formatTime(endSeconds)} (${duration.toFixed(1)}s)`;
+            } else if (startSeconds !== null) {
+                elements.loopInfo.textContent = `Loop from: ${formatTime(startSeconds)} to end`;
+            } else {
+                elements.loopInfo.textContent = 'Enter timestamps to loop specific sections';
+            }
+        }
+
+        function loadVideo() {
+            const url = elements.videoUrl.value.trim();
+            if (!url) {
+                showError('Please enter a YouTube URL');
+                return;
+            }
+
+            const videoId = extractVideoId(url);
+            if (!videoId) {
+                showError('Invalid YouTube URL. Please use format: https://www.youtube.com/watch?v=...');
+                return;
+            }
+
+            // Update timestamps before loading
+            updateTimestamps();
+
+            // Reset states
+            playerReady = false;
+            videoLoaded = false;
+            resetLoopState();
+
+            if (player) {
+                player.destroy();
+            }
+
+            player = new YT.Player('player', {
+                height: '100%',
+                width: '100%',
+                videoId: videoId,
+                playerVars: {
+                    start: Math.floor(startSeconds),
+                    autoplay: 1,
+                    controls: 1,
+                    rel: 0,
+                    modestbranding: 1
+                },
+                events: {
+                    onReady: onPlayerReady,
+                    onStateChange: onPlayerStateChange,
+                    onError: onPlayerError
+                }
+            });
+
+            elements.videoSection.style.display = 'block';
+            elements.errorMsg.innerHTML = '';
+        }
+
+        function onPlayerReady(event) {
+            playerReady = true;
+            console.log('Player ready');
+            
+            // Seek to start time if specified
+            if (startSeconds > 0) {
+                player.seekTo(startSeconds, true);
+            }
+        }
+
+        function onPlayerStateChange(event) {
+            const state = event.data;
+            
+            // Video has loaded and is ready
+            if (state === YT.PlayerState.PLAYING) {
+                videoLoaded = true;
+            }
+            
+            // Handle video ending during loop
+            if (state === YT.PlayerState.ENDED && isLooping) {
+                setTimeout(() => {
+                    if (player && isLooping) {
+                        player.seekTo(startSeconds, true);
+                        player.playVideo();
+                    }
+                }, 100);
+            }
+            
+            // Handle paused state during looping
+            if (state === YT.PlayerState.PAUSED && isLooping) {
+                // Check if we're at the end of our loop segment
+                const currentTime = player.getCurrentTime();
+                if (endSeconds && currentTime >= endSeconds) {
+                    setTimeout(() => {
+                        if (player && isLooping) {
+                            player.seekTo(startSeconds, true);
+                            player.playVideo();
+                        }
+                    }, 100);
+                }
+            }
+        }
+
+        function onPlayerError(event) {
+            const errorMessages = {
+                2: 'Invalid video ID',
+                5: 'HTML5 player error',
+                100: 'Video not found or private',
+                101: 'Video not allowed to be embedded',
+                150: 'Video not allowed to be embedded'
+            };
+            
+            const message = errorMessages[event.data] || 'Unknown player error';
+            showError(`Player Error: ${message}`);
+        }
+
+        function toggleLoop() {
+            if (!playerReady || !videoLoaded) {
+                showError('Please wait for the video to load completely');
+                return;
+            }
+
+            // Update timestamps when toggling loop
+            updateTimestamps();
+
+            isLooping = !isLooping;
+            
+            if (isLooping) {
+                // Validate loop parameters
+                if (endSeconds !== null && endSeconds <= startSeconds) {
+                    showError('End time must be greater than start time');
+                    isLooping = false;
+                    return;
+                }
+
+                elements.loopBtn.innerHTML = '⏹️ Stop Loop';
+                elements.loopBtn.className = 'btn btn-danger me-2';
+                elements.loopStatus.style.display = 'inline-block';
+                
+                // Start from the beginning of the loop
+                player.seekTo(startSeconds, true);
+                player.playVideo();
+                
+                startLoopMonitoring();
+            } else {
+                elements.loopBtn.innerHTML = '▶️ Start Loop';
+                elements.loopBtn.className = 'btn btn-success me-2';
+                elements.loopStatus.style.display = 'none';
+                stopLoopMonitoring();
+            }
+        }
+
+        function startLoopMonitoring() {
+            // Use more frequent monitoring for better precision
+            loopTimer = setInterval(() => {
+                if (player && playerReady && isLooping) {
+                    try {
+                        const currentTime = player.getCurrentTime();
+                        const playerState = player.getPlayerState();
+                        
+                        // Only check loop boundaries when video is playing
+                        if (playerState === YT.PlayerState.PLAYING) {
+                            // If we have an end time and we've reached it
+                            if (endSeconds !== null && currentTime >= endSeconds) {
+                                player.seekTo(startSeconds, true);
+                                // Don't need to call playVideo() since we're already playing
+                            }
+                            // If we've gone before the start time (user manually seeked)
+                            else if (currentTime < startSeconds) {
+                                player.seekTo(startSeconds, true);
+                            }
+                        }
+                    } catch (error) {
+                        console.error('Loop monitoring error:', error);
+                    }
+                }
+            }, 100); // Check every 100ms for better precision
+        }
+
+        function stopLoopMonitoring() {
+            if (loopTimer) {
+                clearInterval(loopTimer);
+                loopTimer = null;
+            }
+        }
+
+        function resetVideo() {
+            if (!playerReady) {
+                showError('Player not ready');
+                return;
+            }
+
+            updateTimestamps();
+            player.seekTo(startSeconds, true);
+            player.playVideo();
+        }
+
+        function previewLoop() {
+            if (!playerReady) {
+                showError('Player not ready');
+                return;
+            }
+
+            updateTimestamps();
+            player.seekTo(startSeconds, true);
+            player.playVideo();
+            
+            // If we have an end time, pause at the end for preview
+            if (endSeconds !== null) {
+                setTimeout(() => {
+                    if (player && player.getCurrentTime() >= endSeconds - 0.5) {
+                        player.pauseVideo();
+                    }
+                }, (endSeconds - startSeconds) * 1000);
+            }
+        }
+
+        function resetLoopState() {
+            isLooping = false;
+            elements.loopBtn.innerHTML = '▶️ Start Loop';
+            elements.loopBtn.className = 'btn btn-success me-2';
+            elements.loopStatus.style.display = 'none';
+            stopLoopMonitoring();
+        }
+
+        // Initialize loop info on page load
+        updateLoopInfo();
+    </script>
+</body>
+</html>
